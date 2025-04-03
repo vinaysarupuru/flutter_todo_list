@@ -31,13 +31,38 @@ jobs:
           flutter-version: '3.29.2'
       - run: flutter pub get
       - run: flutter build ios --debug --no-codesign
-      - run: mkdir -p build/ios/ipa
-      - run: cp -r build/ios/Debug-iphonesimulator/*.app build/ios/ipa/
-      - run: cd build/ios/ipa && zip -r ../ios-simulator.zip .
+      - name: Package iOS build artifacts
+        run: |
+          mkdir -p build/ios/ipa
+          # Check if the build directory exists and has contents
+          if [ -d "build/ios/Debug-iphonesimulator" ]; then
+            # Find any .app directories
+            APP_FILES=$(find build/ios -name "*.app" -type d)
+            if [ -n "$APP_FILES" ]; then
+              # Copy found .app files to ipa directory
+              cp -r $APP_FILES build/ios/ipa/
+              echo "Copied app files to build/ios/ipa/"
+              # Create zip file
+              cd build/ios/ipa && zip -r ../ios-simulator.zip .
+              echo "Created zip archive"
+            else
+              echo "No .app files found in build output"
+              # Create a dummy file so the artifact upload doesn't fail
+              echo "Build failed to produce .app files" > build/ios/ios-simulator.zip
+              exit 1
+            fi
+          else
+            echo "Debug-iphonesimulator directory not found"
+            # Create a dummy file so the artifact upload doesn't fail
+            mkdir -p build/ios
+            echo "Build failed to produce expected output directory" > build/ios/ios-simulator.zip
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-build
           path: build/ios/ios-simulator.zip
+        if: always()
 
   web:
     runs-on: ubuntu-latest
