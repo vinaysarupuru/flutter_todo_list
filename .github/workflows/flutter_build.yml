@@ -128,61 +128,117 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.29.2'
+      - name: Install Windows build dependencies
+        run: |
+          choco install visualstudio2022buildtools --params "--add Microsoft.VisualStudio.Component.Windows10SDK.19041 --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.ComponentGroup.UWP.Support" -y
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          choco install innosetup -y
+          Write-Host "Installed Visual Studio Build Tools and dependencies"
+      
       - name: Build Windows App
         run: |
-          choco install visualstudio2022buildtools -y  # Install required tools
-          choco install innosetup -y  # Install Inno Setup
+          Write-Host "Configuring Flutter for Windows..."
           flutter config --enable-windows-desktop
+          flutter doctor -v
+          
+          Write-Host "Cleaning previous build artifacts..."
+          Remove-Item -Path "build" -Recurse -Force -ErrorAction SilentlyContinue
+          flutter clean
+          
+          Write-Host "Getting dependencies..."
           flutter pub get
-          flutter build windows --release
+          
+          Write-Host "Building Windows app in Release mode..."
+          flutter build windows --release --verbose --target-platform windows-x64
+          
+          # Wait for build to complete and verify output
+          Write-Host "Waiting for build output to be ready..."
+          Start-Sleep -Seconds 10
+          
+          Write-Host "Checking build directory structure:"
+          if (Test-Path "build\windows") {
+              Get-ChildItem "build\windows" -Recurse | Where-Object { !$_.PSIsContainer } | ForEach-Object {
+                  Write-Host $_.FullName
+              }
+          } else {
+              Write-Host "build\windows directory not found!"
+          }
           
           # Wait for file system and verify build
       - name: Create Installer
         shell: pwsh
         run: |
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 10
           
-          Write-Host "Verifying build output:"
-          cmd /c dir /s /b "build\windows\runner\Release\*.exe"
+          Write-Host "Searching for Windows build artifacts..."
+          $possibleLocations = @(
+              "build\windows\runner\Release",
+              "build\windows\x64\runner\Release",
+              "build\windows\runner\Debug",
+              "build\windows\x64\runner\Debug"
+          )
           
-          $BUILD_DIR = "build\windows\runner\Release"
-          Write-Host "Checking build directory using different methods:"
-          
-          Write-Host "1. Using Test-Path with relative path:"
-          if (Test-Path $BUILD_DIR) {
-              Write-Host "Directory exists (relative path)"
-              Get-ChildItem $BUILD_DIR
+          $BUILD_DIR = $null
+          foreach ($location in $possibleLocations) {
+              Write-Host "Checking $location..."
+              if (Test-Path $location) {
+                  Write-Host "Found build directory at: $location"
+                  $BUILD_DIR = $location
+                  break
+              }
           }
           
-          Write-Host "2. Using Test-Path with full path:"
-          $FULL_PATH = Join-Path $PWD $BUILD_DIR
-          Write-Host "Full path: $FULL_PATH"
-          if (Test-Path $FULL_PATH) {
-              Write-Host "Directory exists (full path)"
-              Get-ChildItem $FULL_PATH
+          if ($null -eq $BUILD_DIR) {
+              Write-Host "No build directory found in expected locations!"
+              Write-Host "Searching for .exe files in entire build directory..."
+              Get-ChildItem -Path "build" -Include "*.exe" -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                  Write-Host "Found EXE: $($_.FullName)"
+                  $BUILD_DIR = Split-Path -Parent $_.FullName
+              }
           }
           
-          Write-Host "3. Using CMD DIR command:"
-          cmd /c dir /s /b "$FULL_PATH"
+          if ($null -eq $BUILD_DIR) {
+              Write-Error "Could not locate build directory with executable!"
+              exit 1
+          }
+          Write-Host "Analyzing build directory contents:"
+          Get-ChildItem -Path $BUILD_DIR -Recurse | ForEach-Object {
+              Write-Host "$($_.FullName) - Size: $((Get-Item $_.FullName).Length) bytes"
+          }
+          
+          $exeFiles = Get-ChildItem -Path $BUILD_DIR -Include "*.exe" -File -Recurse
+          if ($exeFiles.Count -eq 0) {
+              Write-Error "No .exe files found in build directory!"
+              Write-Host "Build directory contents:"
+              Get-ChildItem -Path $BUILD_DIR -Recurse
+              exit 1
+          }
+          Write-Host "Found $($exeFiles.Count) .exe files in build directory"
           
           # Create Inno Setup script
           $APP_NAME = "Flutter Todo List"
           $APP_VERSION = "1.0.0"
           $PUBLISHER = "Your Company Name"
           
-          # Get absolute path to build directory
-          $SOURCE_DIR = Join-Path $PWD "build\windows\runner\Release"
-          $SOURCE_DIR = [System.IO.Path]::GetFullPath($SOURCE_DIR)
+          # Get the first exe file found
+          $mainExe = $exeFiles | Select-Object -First 1
+          $SOURCE_DIR = Split-Path -Parent $mainExe.FullName
+          $exeName = Split-Path -Leaf $mainExe.FullName
+          
+          Write-Host "Using executable: $($mainExe.FullName)"
+          Write-Host "Source directory: $SOURCE_DIR"
+          
+          # Verify all required DLLs are present
+          Write-Host "Checking for required DLLs..."
+          Get-ChildItem -Path $SOURCE_DIR -Filter "*.dll" | ForEach-Object {
+              Write-Host "Found DLL: $($_.Name)"
+          }
           
           Write-Host "Preparing Inno Setup with source directory: $SOURCE_DIR"
           
-          # Verify build files exist
-          if (-not (Test-Path "$SOURCE_DIR\flutter_todo_list.exe")) {
-              Write-Error "Could not find flutter_todo_list.exe in $SOURCE_DIR"
-              exit 1
-          }
-          
-          $INNO_SCRIPT = "[Setup]`n"
+          # Create Inno Setup script with dynamic executable name
+          $INNO_SCRIPT = "# Inno Setup Script generated for Flutter Windows build`n"
+          $INNO_SCRIPT += "[Setup]`n"
           $INNO_SCRIPT += "AppId={{6EC7C760-D9E7-4736-A2E5-6DB4C8E0CAA1}`n"
           $INNO_SCRIPT += "AppName=$APP_NAME`n"
           $INNO_SCRIPT += "AppVersion=$APP_VERSION`n"
@@ -195,7 +251,7 @@ jobs:
           $INNO_SCRIPT += "OutputBaseFilename=flutter_todo_list_setup`n"
           $INNO_SCRIPT += "Compression=lzma`n"
           $INNO_SCRIPT += "SolidCompression=yes`n"
-          $INNO_SCRIPT += "UninstallDisplayIcon={app}\flutter_todo_list.exe`n"
+          $INNO_SCRIPT += "UninstallDisplayIcon={app}\$exeName`n"
           $INNO_SCRIPT += "MinVersion=6.0`n"
           $INNO_SCRIPT += "WorkingDir={app}`n"
           $INNO_SCRIPT += "PrivilegesRequired=lowest`n"
@@ -216,14 +272,14 @@ jobs:
           $INNO_SCRIPT += "Source: `"$($SOURCE_DIR -replace '\\','\\\\')\*`"; DestDir: `"{app}`"; Flags: ignoreversion recursesubdirs createallsubdirs`n"
           $INNO_SCRIPT += "`n"
           $INNO_SCRIPT += "[Icons]`n"
-          $INNO_SCRIPT += "Name: `"{group}\$APP_NAME`"; Filename: `"{app}\flutter_todo_list.exe`"`n"
-          $INNO_SCRIPT += "Name: `"{autodesktop}\$APP_NAME`"; Filename: `"{app}\flutter_todo_list.exe`"`n"
+          $INNO_SCRIPT += "Name: `"{group}\$APP_NAME`"; Filename: `"{app}\$exeName`"`n"
+          $INNO_SCRIPT += "Name: `"{autodesktop}\$APP_NAME`"; Filename: `"{app}\$exeName`"`n"
           $INNO_SCRIPT += "`n"
           $INNO_SCRIPT += "[Run]`n"
-          $INNO_SCRIPT += "Filename: `"{app}\flutter_todo_list.exe`"; Description: `"Launch Flutter Todo List now`"; Flags: postinstall nowait skipifsilent`n"
+          $INNO_SCRIPT += "Filename: `"{app}\$exeName`"; Description: `"Launch Flutter Todo List now`"; Flags: postinstall nowait skipifsilent`n"
           $INNO_SCRIPT += "`n"
           $INNO_SCRIPT += "[UninstallRun]`n"
-          $INNO_SCRIPT += "Filename: `"taskkill.exe`"; Parameters: `"/F /IM flutter_todo_list.exe`"; Flags: runhidden`n"
+          $INNO_SCRIPT += "Filename: `"taskkill.exe`"; Parameters: `"/F /IM $exeName`"; Flags: runhidden`n"
           $INNO_SCRIPT += "`n"
           $INNO_SCRIPT += "[UninstallDelete]`n"
           $INNO_SCRIPT += "Type: filesandordirs; Name: `"{app}`"`n"
@@ -253,23 +309,51 @@ jobs:
         shell: pwsh
       - name: Create Windows artifacts
         run: |
-          # Create zip package of raw build files
-          $exeFile = Get-ChildItem -Path . -Include "flutter_todo_list.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          Write-Host "Creating Windows artifacts..."
+          
+          # First try to find the executable in the expected Release directory
+          $exeFile = Get-ChildItem -Path "build\windows\runner\Release" -Include "*.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          
+          # If not found in Release, search entire build directory
+          if (-not $exeFile) {
+              Write-Host "Executable not found in Release directory, searching build directory..."
+              $exeFile = Get-ChildItem -Path "build" -Include "*.exe" -File -Recurse -ErrorAction SilentlyContinue | 
+                  Where-Object { $_.FullName -notlike "*installer*" } |
+                  Select-Object -First 1
+          }
           
           if ($exeFile) {
-            Write-Host "Found Windows exe file at: $($exeFile.FullName)"
-            $exeDir = Split-Path -Parent $exeFile.FullName
-            
-            # Create zip of raw build files
-            Write-Host "Creating standalone Windows package with all required files"
-            $tempDir = "windows-package"
-            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-            Copy-Item -Path "$exeDir\*" -Destination $tempDir -Recurse
-            Compress-Archive -Path "$tempDir\*" -DestinationPath windows.zip -Force
-            Write-Host "Successfully created Windows zip artifact"
+              Write-Host "Found Windows exe file at: $($exeFile.FullName)"
+              $exeDir = Split-Path -Parent $exeFile.FullName
+              
+              # Create temporary directory for package
+              $tempDir = "windows-package"
+              New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+              
+              # Copy all files from build directory
+              Write-Host "Copying files to package directory..."
+              Copy-Item -Path "$exeDir\*" -Destination $tempDir -Recurse
+              
+              # Log package contents
+              Write-Host "Package contents:"
+              Get-ChildItem -Path $tempDir -Recurse | ForEach-Object {
+                  Write-Host " - $($_.FullName) - Size: $((Get-Item $_.FullName).Length) bytes"
+              }
+              
+              # Create zip archive
+              Write-Host "Creating zip archive..."
+              Compress-Archive -Path "$tempDir\*" -DestinationPath windows.zip -Force
+              
+              if (Test-Path windows.zip) {
+                  $zipSize = (Get-Item windows.zip).Length
+                  Write-Host "Successfully created Windows zip artifact (Size: $zipSize bytes)"
+              } else {
+                  Write-Error "Failed to create zip archive!"
+                  exit 1
+              }
           } else {
-            Write-Host "Windows executable not found, creating empty zip artifact"
-            Set-Content -Path windows.zip -Value "Windows build did not produce expected .exe file"
+              Write-Host "Windows executable not found in any location"
+              Set-Content -Path windows.zip -Value "Windows build did not produce expected .exe file"
           }
           
           # Check for Inno Setup installer
