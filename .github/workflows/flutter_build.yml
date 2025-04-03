@@ -1,4 +1,4 @@
-name: Flutter Multiplatform Build
+name: Flutter Multiplatform Test Builds
 
 on:
   push:
@@ -14,14 +14,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.2' # Specify your Flutter version
+          flutter-version: '3.29.2'
       - run: flutter pub get
-      - run: flutter build appbundle --release
+      - run: flutter build apk --debug  # Unsigned debug build [[7]]
       - uses: actions/upload-artifact@v4
         with:
-          name: android-release.aab
-          path: build/app/outputs/bundle/release/app-release.aab
-    # [[1]][[3]][[7]]
+          name: android-debug.apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
 
   ios:
     runs-on: macos-latest
@@ -29,12 +28,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
       - run: flutter pub get
-      - run: flutter build ipa --release --no-tree-shake-icons
+      - run: flutter build ipa --simulator  # Unsigned simulator build [[7]]
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-release.ipa
+          name: ios-simulator.ipa
           path: build/ios/ipa/*.ipa
-    # [[4]][[6]] (Note: Requires Apple Developer certificate setup in secrets)
 
   web:
     runs-on: ubuntu-latest
@@ -48,7 +46,6 @@ jobs:
         with:
           name: web-release.zip
           path: web.zip
-    # [[4]][[7]]
 
   windows:
     runs-on: windows-latest
@@ -56,14 +53,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
       - run: flutter pub get
-      - run: flutter build windows --release
+      - run: flutter build windows --release  # Unsigned EXE [[8]]
       - run: Compress-Archive -Path build\windows\runner\Release -DestinationPath windows.zip
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release.zip
           path: windows.zip
-    # [[4]][[6]]
 
   macos:
     runs-on: macos-latest
@@ -71,13 +67,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
       - run: flutter pub get
-      - run: flutter build macos --release
+      - run: flutter build macos --release  # Unsigned app bundle [[8]]
       - run: zip -r macos.zip build/macos/Build/Products/Release/*.app
       - uses: actions/upload-artifact@v4
         with:
           name: macos-release.zip
           path: macos.zip
-    # [[4]][[6]]
 
   linux:
     runs-on: ubuntu-latest
@@ -85,13 +80,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
       - run: flutter pub get
-      - run: flutter build linux --release
+      - run: flutter build linux --release  # Unsigned Linux binary [[8]]
       - run: zip -r linux.zip build/linux/x64/release/bundle
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release.zip
           path: linux.zip
-    # [[4]][[8]]
 
   release:
     runs-on: ubuntu-latest
@@ -101,17 +95,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: |
-            artifacts/android-release.aab
-            artifacts/ios-release.ipa
-            artifacts/web-release.zip
-            artifacts/windows-release.zip
-            artifacts/macos-release.zip
-            artifacts/linux-release.zip
-    # [[9]][[10]]
+            artifacts/**/*.apk
+            artifacts/**/*.ipa
+            artifacts/**/*.zip
