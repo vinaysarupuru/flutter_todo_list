@@ -30,11 +30,14 @@ jobs:
         with:
           flutter-version: '3.29.2'
       - run: flutter pub get
-      - run: flutter build ipa --simulator  # Avoids code signing [[7]]
+      - run: flutter build ios --debug --no-codesign
+      - run: mkdir -p build/ios/ipa
+      - run: cp -r build/ios/Debug-iphonesimulator/*.app build/ios/ipa/
+      - run: cd build/ios/ipa && zip -r ../ios-simulator.zip .
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator.ipa
-          path: build/ios/ipa/*.ipa
+          name: ios-simulator-build
+          path: build/ios/ios-simulator.zip
 
   web:
     runs-on: ubuntu-latest
@@ -62,7 +65,14 @@ jobs:
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
       - run: flutter build windows --release
-      - run: Compress-Archive -Path "build\windows\runner\Release" -DestinationPath windows.zip -Force
+      - run: |
+          $releaseDir = "build\windows\runner\Release"
+          if (Test-Path $releaseDir) {
+            Compress-Archive -Path $releaseDir\* -DestinationPath windows.zip -Force
+          } else {
+            Write-Error "Release directory not found"
+            exit 1
+          }
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
@@ -91,8 +101,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.29.2'
-      - run: sudo apt-get install -y libgtk-3-dev  # GTK dependencies [[9]]
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libx11-dev pkg-config cmake ninja-build libblkid-dev
       - run: flutter pub get
+      - run: flutter config --enable-linux-desktop
       - run: flutter build linux --release
       - run: zip -r linux.zip build/linux/x64/release/bundle
       - uses: actions/upload-artifact@v4
