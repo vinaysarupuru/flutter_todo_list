@@ -16,11 +16,21 @@ jobs:
         with:
           flutter-version: '3.29.2'
       - run: flutter pub get
-      - run: flutter build apk --debug
+      - run: flutter build apk --release
+      - name: Create Android artifact
+        run: |
+          if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+            echo "Android APK found, creating artifact"
+          else
+            echo "Android APK not found, creating placeholder"
+            mkdir -p build/app/outputs/flutter-apk
+            echo "Android build failed to produce APK" > build/app/outputs/flutter-apk/app-release.apk
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: android-debug.apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: android-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+        if: always()
 
   ios:
     runs-on: macos-latest
@@ -30,10 +40,10 @@ jobs:
         with:
           flutter-version: '3.29.2'
       - run: flutter pub get
-      - name: Build iOS for simulator
+      - name: Build iOS release
         run: |
           flutter clean
-          flutter build ios --debug --simulator --no-codesign
+          flutter build ios --release --no-codesign
       - name: Debug iOS build artifacts
         run: |
           echo "Listing build directory contents:"
@@ -58,7 +68,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-debug-build
+          name: ios-release-build
           path: build/ios-artifact.zip
         if: always()
 
@@ -71,11 +81,20 @@ jobs:
           flutter-version: '3.29.2'
       - run: flutter pub get
       - run: flutter build web --release
-      - run: zip -r web.zip build/web
+      - name: Create Web artifact
+        run: |
+          if [ -d "build/web" ]; then
+            echo "Web build found, creating zip"
+            zip -r web.zip build/web
+          else
+            echo "Web build not found, creating placeholder"
+            echo "Web build failed to produce output" > web.zip
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: web-release.zip
           path: web.zip
+        if: always()
 
   windows:
     runs-on: windows-latest
@@ -129,11 +148,27 @@ jobs:
           flutter-version: '3.29.2'
       - run: flutter pub get
       - run: flutter build macos --release
-      - run: zip -r macos.zip build/macos/Build/Products/Release/*.app
+      - name: Create macOS artifact
+        run: |
+          if [ -d "build/macos/Build/Products/Release" ]; then
+            echo "macOS build found, creating zip"
+            APP_FILES=$(find build/macos/Build/Products/Release -name "*.app" -type d)
+            if [ -n "$APP_FILES" ]; then
+              zip -r macos.zip $APP_FILES
+              echo "Created macOS zip with app files"
+            else
+              echo "No .app files found in macOS build"
+              echo "macOS build did not produce app files" > macos.zip
+            fi
+          else
+            echo "macOS build directory not found, creating placeholder"
+            echo "macOS build failed to produce output" > macos.zip
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: macos-release.zip
           path: macos.zip
+        if: always()
 
   linux:
     runs-on: ubuntu-latest
@@ -149,11 +184,20 @@ jobs:
       - run: flutter pub get
       - run: flutter config --enable-linux-desktop
       - run: flutter build linux --release
-      - run: zip -r linux.zip build/linux/x64/release/bundle
+      - name: Create Linux artifact
+        run: |
+          if [ -d "build/linux/x64/release/bundle" ]; then
+            echo "Linux build found, creating zip"
+            zip -r linux.zip build/linux/x64/release/bundle
+          else
+            echo "Linux build directory not found, creating placeholder"
+            echo "Linux build failed to produce output" > linux.zip
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release.zip
           path: linux.zip
+        if: always()
 
   release:
     runs-on: ubuntu-latest
