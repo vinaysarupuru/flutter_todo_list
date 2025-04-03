@@ -1,0 +1,41 @@
+class Todo {
+  Todo({
+    required this.id,
+    required this.description,
+    required this.timestamp,
+    this.completed = false,
+  });
+
+  final String id;
+  final String description;
+  final bool completed;
+  final String timestamp;
+
+  Todo copyWith({
+    String? id,
+    String? description,
+    bool? completed,
+    String? timestamp,
+  }) {
+    return Todo(
+      id: id ?? this.id,
+      description: description ?? this.description,
+      completed: completed ?? this.completed,
+      timestamp: timestamp ?? this.timestamp,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'description': description,
+      'completed': completed,
+      'timestamp': timestamp,
+    };
+  }
+
+  @override
+  String toString() {
+    return '$id,$description,$completed,$timestamp';
+  }
+}
