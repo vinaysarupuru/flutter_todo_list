@@ -43,6 +43,7 @@ jobs:
         run: |
           echo "Android APK can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
           echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/android-apk.zip"
 
   build-linux:
     name: Build Linux
@@ -81,6 +82,7 @@ jobs:
         run: |
           echo "Linux app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
           echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/linux-release.zip"
 
   build-web:
     name: Build Web
@@ -111,6 +113,7 @@ jobs:
         run: |
           echo "Web app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
           echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/web-release.zip"
 
   build-ios:
     name: Build iOS
@@ -141,6 +144,7 @@ jobs:
         run: |
           echo "iOS app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
           echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/ios-release.zip"
           echo "Note: iOS apps require code signing for installation on physical devices."
 
   build-macos:
@@ -175,6 +179,7 @@ jobs:
         run: |
           echo "macOS app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
           echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/macos-release.zip"
 
   build-windows:
     name: Build Windows
@@ -208,4 +213,34 @@ jobs:
         run: |
           echo "Windows app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
           echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/windows-release.zip"
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-android, build-ios, build-web, build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+          
+      - name: Display Download Information
+        run: |
+          echo "All build artifacts for this workflow run can be downloaded from:"
+          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo ""
+          echo "Android APK: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/android-apk.zip"
+          echo "iOS build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/ios-release.zip"
+          echo "Web build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/web-release.zip"
+          echo "Linux build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/linux-release.zip"
+          echo "macOS build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/macos-release.zip"
+          echo "Windows build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/windows-release.zip"
 
