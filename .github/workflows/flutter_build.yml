@@ -102,7 +102,8 @@ jobs:
         run: |
           flutter pub get
           flutter clean
-      - name: Enable Desktop Support and Build App
+      - name: Enable Desktop Support and Build App (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           if [ "${{ runner.os }}" = "Linux" ]; then
             flutter config --enable-linux-desktop
@@ -110,11 +111,39 @@ jobs:
           elif [ "${{ runner.os }}" = "macOS" ]; then
             flutter config --enable-macos-desktop
             flutter build macos --release
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            flutter config --enable-windows-desktop
-            flutter build windows --release
           fi
-      - name: Create Executable and ZIP Artifact
+      - name: Enable Desktop Support and Build App (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          flutter config --enable-windows-desktop
+          flutter build windows --release
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install innosetup -y
+      - name: Create Inno Setup Script (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo '[Setup]' > installer.iss
+          echo 'AppName=Flutter Todo App' >> installer.iss
+          echo 'AppVersion=1.0' >> installer.iss
+          echo 'DefaultDirName={pf}\FlutterTodoApp' >> installer.iss
+          echo 'DefaultGroupName=Flutter Todo App' >> installer.iss
+          echo 'OutputDir=release' >> installer.iss
+          echo 'OutputBaseFilename=flutter_todo_app_setup' >> installer.iss
+          echo '[Files]' >> installer.iss
+          echo 'Source: "build\windows\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs' >> installer.iss
+          echo '[Icons]' >> installer.iss
+          echo 'Name: "{group}\Flutter Todo App"; Filename: "{app}\flutter_todo_list.exe"' >> installer.iss
+          echo 'Name: "{commondesktop}\Flutter Todo App"; Filename: "{app}\flutter_todo_list.exe"' >> installer.iss
+      - name: Compile Inno Setup Installer (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer.iss
+          mkdir -p release
+          copy build\windows\runner\Release release\windows_app -Recurse
+      - name: Create Executable and ZIP Artifact (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p release
           if [ "${{ runner.os }}" = "Linux" ]; then
@@ -123,11 +152,11 @@ jobs:
           elif [ "${{ runner.os }}" = "macOS" ]; then
             mv build/macos/Build/Products/Release/app.app release/macos_app
             zip -r release/macos_app.zip release/macos_app
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            mkdir release_temp
-            xcopy build\\windows\\runner\\Release release_temp /E /I
-            powershell -Command "Compress-Archive -Path release_temp -DestinationPath release\\windows_app.zip"
           fi
+      - name: Create ZIP Artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          powershell -Command "Compress-Archive -Path release\windows_app -DestinationPath release\windows_app.zip"
       - name: Upload Desktop Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -184,3 +213,4 @@ jobs:
             artifacts/desktop/Linux/release/linux_app.zip
             artifacts/desktop/macOS/release/macos_app.zip
             artifacts/desktop/Windows/release/windows_app.zip
+            artifacts/desktop/Windows/release/flutter_todo_app_setup.exe
