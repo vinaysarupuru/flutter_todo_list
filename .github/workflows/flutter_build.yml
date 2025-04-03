@@ -16,7 +16,7 @@ jobs:
         with:
           flutter-version: '3.29.2'
       - run: flutter pub get
-      - run: flutter build apk --debug  # Unsigned debug build [[7]]
+      - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
         with:
           name: android-debug.apk
@@ -27,8 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
       - run: flutter pub get
-      - run: flutter build ipa --simulator  # Unsigned simulator build [[7]]
+      - run: flutter build ipa --simulator  # Avoids code signing [[7]]
       - uses: actions/upload-artifact@v4
         with:
           name: ios-simulator.ipa
@@ -39,6 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
       - run: flutter pub get
       - run: flutter build web --release
       - run: zip -r web.zip build/web
@@ -52,9 +56,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+      - run: choco install visualstudio2022buildtools -y  # Install required tools [[5]]
+      - run: flutter config --enable-windows-desktop
       - run: flutter pub get
-      - run: flutter build windows --release  # Unsigned EXE [[8]]
-      - run: Compress-Archive -Path build\windows\runner\Release -DestinationPath windows.zip
+      - run: flutter build windows --release
+      - run: Compress-Archive -Path "build\windows\runner\Release" -DestinationPath windows.zip -Force
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
@@ -66,8 +74,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
       - run: flutter pub get
-      - run: flutter build macos --release  # Unsigned app bundle [[8]]
+      - run: flutter build macos --release
       - run: zip -r macos.zip build/macos/Build/Products/Release/*.app
       - uses: actions/upload-artifact@v4
         with:
@@ -79,8 +89,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+      - run: sudo apt-get install -y libgtk-3-dev  # GTK dependencies [[9]]
       - run: flutter pub get
-      - run: flutter build linux --release  # Unsigned Linux binary [[8]]
+      - run: flutter build linux --release
       - run: zip -r linux.zip build/linux/x64/release/bundle
       - uses: actions/upload-artifact@v4
         with:
