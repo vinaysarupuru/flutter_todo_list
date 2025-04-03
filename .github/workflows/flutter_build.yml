@@ -140,6 +140,20 @@ jobs:
           $APP_VERSION = "1.0.0"
           $PUBLISHER = "Your Company Name"
           
+          # Get and verify build directory path
+          $BUILD_DIR = Join-Path $PWD "build\windows\runner\Release"
+          $BUILD_DIR = [System.IO.Path]::GetFullPath($BUILD_DIR)
+          
+          Write-Host "Current directory: $PWD"
+          Write-Host "Build directory: $BUILD_DIR"
+          Write-Host "Checking build directory existence:"
+          if (Test-Path $BUILD_DIR) {
+              Write-Host "Build directory exists"
+              Get-ChildItem $BUILD_DIR | ForEach-Object { Write-Host $_.Name }
+          } else {
+              Write-Host "Build directory does not exist"
+          }
+          
           @"
           [Setup]
           AppName=$APP_NAME
@@ -154,7 +168,7 @@ jobs:
           UninstallDisplayIcon={app}\flutter_todo_list.exe
           
           [Files]
-          Source: "build\windows\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          Source: "$($BUILD_DIR.Replace('\','\\'))\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
           
           [Icons]
           Name: "{group}\$APP_NAME"; Filename: "{app}\flutter_todo_list.exe"
