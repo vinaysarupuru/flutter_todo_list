@@ -16,20 +16,45 @@ jobs:
         with:
           flutter-version: '3.29.2'
       - run: flutter pub get
+      # Build single APK
       - run: flutter build apk --release
-      - name: Create Android artifact
+      # Build split APKs
+      - run: flutter build apk --split-per-abi --release
+      - name: Create Android artifacts
         run: |
+          # Check for single APK
           if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
-            echo "Android APK found, creating artifact"
+            echo "Single APK found"
           else
-            echo "Android APK not found, creating placeholder"
+            echo "Single APK not found, creating placeholder"
             mkdir -p build/app/outputs/flutter-apk
             echo "Android build failed to produce APK" > build/app/outputs/flutter-apk/app-release.apk
           fi
+          
+          # Check for split APKs
+          if [ -f "build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk" ] || \
+             [ -f "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ] || \
+             [ -f "build/app/outputs/flutter-apk/app-x86_64-release.apk" ]; then
+            echo "Split APKs found"
+            # Create a zip of all split APKs
+            cd build/app/outputs/flutter-apk
+            zip split-apks.zip *-release.apk
+            cd ../../../..
+          else
+            echo "Split APKs not found, creating placeholder"
+            echo "Android build failed to produce split APKs" > build/app/outputs/flutter-apk/split-apks.zip
+          fi
+      # Upload single APK
       - uses: actions/upload-artifact@v4
         with:
           name: android-release.apk
           path: build/app/outputs/flutter-apk/app-release.apk
+        if: always()
+      # Upload split APKs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-split-apks.zip
+          path: build/app/outputs/flutter-apk/split-apks.zip
         if: always()
 
   ios:
@@ -126,13 +151,23 @@ jobs:
           OutputBaseFilename=flutter_todo_list_setup
           Compression=lzma
           SolidCompression=yes
+          UninstallDisplayIcon={app}\flutter_todo_list.exe
           
           [Files]
-          Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          Source: "build\windows\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
           
           [Icons]
           Name: "{group}\$APP_NAME"; Filename: "{app}\flutter_todo_list.exe"
           Name: "{autodesktop}\$APP_NAME"; Filename: "{app}\flutter_todo_list.exe"
+          
+          [Run]
+          Filename: "{app}\flutter_todo_list.exe"; Description: "Launch application"; Flags: postinstall nowait
+          
+          [UninstallRun]
+          Filename: "taskkill.exe"; Parameters: "/F /IM flutter_todo_list.exe"; Flags: runhidden
+          
+          [UninstallDelete]
+          Type: filesandordirs; Name: "{app}"
           "@ | Out-File -FilePath "installer_script.iss" -Encoding UTF8
           
           # Compile installer
