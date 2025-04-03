@@ -1,316 +1,129 @@
-name: Flutter Multiplatform Build
+name: Flutter CI/CD Pipeline
 
+# Trigger on tag pushes (for release) and pull requests to main.
 on:
   push:
-    branches: [main]
-  release:
-    types: [created, published, prereleased]
-  workflow_dispatch:
-    inputs:
-      release_mode:
-        description: 'Build in release mode'
-        type: boolean
-        default: true
-
-env:
-  FLUTTER_VERSION: '3.29.2'
-  BUILD_MODE: ${{ github.event.inputs.release_mode == 'true' || github.event_name == 'release' && 'release' || 'debug' }}
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      release_tag: ${{ steps.get_tag.outputs.tag }}
-    steps:
-      - name: Get release tag
-        id: get_tag
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=v${{ github.run_number }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=build-${{ github.run_number }}" >> $GITHUB_OUTPUT
-          fi
-
   android:
-    needs: setup
+    name: Build Android APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
-          cache: gradle
-      
-      - name: Build Android
-        run: |
-          flutter pub get
-          flutter build apk --${{ env.BUILD_MODE }} --split-per-abi
-      
-      - name: Package artifacts
-        run: |
-          mkdir -p artifacts
-          find build/app/outputs/flutter-apk -name "*.apk" -exec cp {} artifacts/ \;
-          
-          # Create metadata file
-          echo "Build: ${{ needs.setup.outputs.release_tag }}" > artifacts/BUILD_INFO.txt
-          echo "Date: $(date)" >> artifacts/BUILD_INFO.txt
-          echo "Commit: ${{ github.sha }}" >> artifacts/BUILD_INFO.txt
-          
-          # Create single ZIP for all APKs
-          zip -j android-builds.zip artifacts/*
-          
-      - uses: actions/upload-artifact@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          name: android-apks
-          path: artifacts/
-          if-no-files-found: warn
-          
-      - uses: actions/upload-artifact@v4
+          flutter-version: 'stable'
+          channel: 'stable'
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      - name: Clean project
+        run: flutter clean
+      - name: Build Android APK
+        run: flutter build apk --release --split-per-abi
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: android-all-builds.zip
-          path: android-builds.zip
-          if-no-files-found: warn
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
 
   ios:
-    needs: setup
+    name: Build iOS App
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-          
-      - name: Build iOS
-        run: |
-          flutter pub get
-          flutter build ios --${{ env.BUILD_MODE }} --no-codesign
-          
-      - name: Package artifacts
-        run: |
-          cd build
-          # Find and zip all .app directories
-          find ios -name "*.app" -type d | xargs zip -r ios-artifact.zip
-          
-          if [ ! -s ios-artifact.zip ]; then
-            echo "iOS build failed to produce expected output" > ios-artifact.zip
-          fi
-          
-      - uses: actions/upload-artifact@v4
+          flutter-version: 'stable'
+          channel: 'stable'
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      - name: Clean project
+        run: flutter clean
+      - name: Build iOS App (no codesign)
+        run: flutter build ios --no-codesign
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: ios-build
-          path: build/ios-artifact.zip
-          if-no-files-found: warn
+          name: ios-app
+          path: build/ios/iphoneos
 
   web:
-    needs: setup
+    name: Build Web App
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-          
-      - name: Build Web
-        run: |
-          flutter pub get
-          flutter build web --${{ env.BUILD_MODE }}
-          
-      - name: Package artifacts
-        run: |
-          if [ -d "build/web" ]; then
-            # Add version info file
-            echo "Build: ${{ needs.setup.outputs.release_tag }}" > build/web/BUILD_INFO.txt
-            zip -r web-build.zip build/web
-          fi
-          
-      - uses: actions/upload-artifact@v4
+          flutter-version: 'stable'
+          channel: 'stable'
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      - name: Build Web App
+        run: flutter build web
+      - name: Upload Web Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: web-build
-          path: web-build.zip
-          if-no-files-found: warn
+          path: build/web
 
-  windows:
-    needs: setup
-    runs-on: windows-latest
+  desktop:
+    name: Build Desktop Apps (macOS, Windows, Linux)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-          
-      - name: Setup Windows dependencies
-        run: choco install visualstudio2022buildtools innosetup -y
-        
-      - name: Enable Windows desktop
-        run: flutter config --enable-windows-desktop
-        
-      - name: Build Windows
+          flutter-version: 'stable'
+          channel: 'stable'
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      - name: Clean project
+        run: flutter clean
+      - name: Enable Desktop Support & Build App
         run: |
-          flutter pub get
-          flutter build windows --release
-        
-      - name: Package Windows artifacts
-        shell: powershell
-        run: |
-          $exeFile = Get-ChildItem -Path . -Include "*.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($exeFile) {
-            $exeDir = Split-Path -Parent $exeFile.FullName
-            
-            # Create Inno Setup script
-            $setupScript = @'
-          [Setup]
-          AppName=Flutter App
-          AppVersion=1.0
-          DefaultDirName={autopf}\Flutter App
-          DefaultGroupName=Flutter App
-          OutputDir=.
-          OutputBaseFilename=flutter_app_setup
-          Compression=lzma
-          SolidCompression=yes
-
-          [Files]
-          Source: "{src}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-          [Icons]
-          Name: "{group}\Flutter App"; Filename: "{app}\{#ExeName}"
-          Name: "{commondesktop}\Flutter App"; Filename: "{app}\{#ExeName}"
-          '@
-            
-            $setupScript = $setupScript.Replace("{src}", $exeDir)
-            $setupScript = $setupScript.Replace("{#ExeName}", $exeFile.Name)
-            
-            Set-Content -Path "setup.iss" -Value $setupScript
-            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
-            
-            if (Test-Path "flutter_app_setup.exe") {
-              Move-Item "flutter_app_setup.exe" -Destination "windows-installer.exe"
-            }
-            
-            # Also package as ZIP
-            Compress-Archive -Path "$exeDir\*" -DestinationPath windows-build.zip -Force
-          } else {
-            Set-Content -Path "windows-build.zip" -Value "Build failed"
-          }
-          
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-build
-          path: windows-build.zip
-          if-no-files-found: warn
-          
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: windows-installer.exe
-          if-no-files-found: ignore
-
-  macos:
-    needs: setup
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-          
-      - name: Build macOS
-        run: |
-          flutter pub get
-          flutter build macos --release
-          
-      - name: Package macOS artifacts
-        run: |
-          APPFILES=$(find build/macos/Build/Products/Release -name "*.app" -type d)
-          if [ -n "$APPFILES" ]; then
-            # Create zip with app files
-            zip -r macos-build.zip $APPFILES
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            flutter config --enable-linux-desktop
+            flutter build linux --release
+          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+            flutter config --enable-macos-desktop
+            flutter build macos --release
           else
-            echo "Build failed" > macos-build.zip
+            flutter config --enable-windows-desktop
+            flutter build windows --release
           fi
-          
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-build
-          path: macos-build.zip
-          if-no-files-found: warn
-
-  linux:
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-          
-      - name: Setup Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libx11-dev pkg-config cmake ninja-build libblkid-dev
-        
-      - name: Enable Linux desktop
-        run: flutter config --enable-linux-desktop
-        
-      - name: Build Linux
+      - name: Create Executable and ZIP for Desktop
         run: |
-          flutter pub get
-          flutter build linux --release
-          
-      - name: Package Linux artifacts
-        run: |
-          if [ -d "build/linux/x64/release/bundle" ]; then
-            # Add version info
-            echo "Build: ${{ needs.setup.outputs.release_tag }}" > build/linux/x64/release/bundle/BUILD_INFO.txt
-            zip -r linux-build.zip build/linux/x64/release/bundle
+          mkdir -p release
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            mv build/linux/x64/release/bundle release/linux_app
+            zip -r release/linux_app.zip release/linux_app
+          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+            mv build/macos/Build/Products/Release/app.app release/macos_app
+            zip -r release/macos_app.zip release/macos_app
           else
-            echo "Build failed" > linux-build.zip
+            mv build/windows/runner/Release release/windows_app
+            powershell -Command "Compress-Archive -Path release/windows_app -DestinationPath release/windows_app.zip"
           fi
-          
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-build
-          path: linux-build.zip
-          if-no-files-found: warn
-
-  release:
-    needs: [setup, android, ios, web, windows, macos, linux]
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_mode == 'true')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-artifacts
-          
-      - name: Prepare release assets
-        run: |
-          mkdir -p release-assets
-          # Copy all relevant files
-          find all-artifacts -type f -not -path "*/\.*" -exec cp {} release-assets/ \;
-          # List files for debugging
-          echo "Files prepared for release:"
-          ls -la release-assets/
-          
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: release-assets/*
-          fail_on_unmatched_files: false
-          draft: false
-          generate_release_notes: true
-          tag_name: ${{ needs.setup.outputs.release_tag }}
+      - name: Upload Desktop Artifact
+        uses: actions
