@@ -5,7 +5,13 @@ on:
     branches:
       - main
   release:
-    types: [created]
+    types: [created, published, prereleased]
+  workflow_dispatch:
+    inputs:
+      release_mode:
+        description: 'Build in release mode'
+        type: boolean
+        default: true
 
 jobs:
   android:
@@ -285,7 +291,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [android, ios, web, windows, macos, linux]
-    if: github.event_name == 'release'
+    # Run if it's a release event OR if manually triggered with release_mode=true
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_mode == 'true')
     steps:
       - name: List workspace contents
         run: |
@@ -300,6 +307,13 @@ jobs:
         run: |
           echo "Listing downloaded artifacts:"
           find artifacts -type f | sort
+      - name: Debug release info
+        run: |
+          echo "Is this a release? ${{ github.event_name == 'release' }}"
+          echo "Is this a manual with release mode? ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_mode == 'true' }}"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Tag name: ${{ github.event.release.tag_name }}"
+          echo "Event data: ${{ toJSON(github.event) }}"
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         env:
@@ -313,7 +327,7 @@ jobs:
           draft: false
           generate_release_notes: true
 
-  # Add a debug job to test if the release trigger is working
+  # Debug job always runs to help diagnose trigger issues
   debug-trigger:
     runs-on: ubuntu-latest
     steps:
@@ -323,4 +337,11 @@ jobs:
           echo "GitHub ref: ${{ github.ref }}"
           echo "GitHub workflow: ${{ github.workflow }}"
           echo "Is this a release event? ${{ github.event_name == 'release' }}"
-          echo "Release type: ${{ github.event.action }}"
+          echo "Manual trigger: ${{ github.event_name == 'workflow_dispatch' }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Release mode set to: ${{ github.event.inputs.release_mode }}"
+          fi
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "Release action: ${{ github.event.action }}"
+            echo "Release tag: ${{ github.event.release.tag_name }}"
+          fi
