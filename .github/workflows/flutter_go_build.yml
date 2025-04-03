@@ -1,0 +1,59 @@
+name: Flutter Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build Flutter App
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        platform: [android, ios, windows, macos, web, linux]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build for ${{ matrix.platform }}
+        run: |
+          if [ "${{ matrix.platform }}" == "android" ]; then
+            flutter build apk --release
+          elif [ "${{ matrix.platform }}" == "ios" ]; then
+            flutter build ios --release
+          elif [ "${{ matrix.platform }}" == "windows" ]; then
+            flutter build windows --release
+          elif [ "${{ matrix.platform }}" == "macos" ]; then
+            flutter build macos --release
+          elif [ "${{ matrix.platform }}" == "web" ]; then
+            flutter build web --release
+          elif [ "${{ matrix.platform }}" == "linux" ]; then
+            flutter build linux --release
+          fi
+
+      - name: Upload build artifacts
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.platform }}-build
+          path: |
+            build/app/outputs/flutter-apk/*.apk
+            build/ios/iphoneos/*.app
+            build/windows/runner/Release/*.exe
+            build/macos/Build/Products/Release/*.app
+            build/web/*
+            build/linux/runner/Release/*.AppImage
