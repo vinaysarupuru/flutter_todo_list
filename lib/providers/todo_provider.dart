@@ -10,7 +10,7 @@ class TodoList extends StateNotifier<List<Todo>> {
 
   void add(String description) {
     var uuid = const Uuid();
-    String time = DateFormat('yyyy-MM-dd – kk:mm').format(DateTime.now());
+    String time = DateFormat('yyyy-MM-ddTHH:mm:ss').format(DateTime.now());
 
     state = [
       ...state,
