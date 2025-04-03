@@ -16,20 +16,45 @@ jobs:
         with:
           flutter-version: '3.29.2'
       - run: flutter pub get
-      - run: flutter build apk --release
-      - name: Create Android artifact
+      - name: Build Android APKs for different architectures
         run: |
-          if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
-            echo "Android APK found, creating artifact"
+          echo "Building APKs for different device architectures"
+          flutter build apk --release --split-per-abi
+      - name: Create Android artifacts
+        run: |
+          mkdir -p android-builds
+          
+          # Check for architecture-specific APKs
+          if [ -d "build/app/outputs/flutter-apk" ]; then
+            echo "Android APK build directory found"
+            # Copy all architecture-specific APKs to the artifacts directory
+            cp build/app/outputs/flutter-apk/*-*.apk android-builds/ 2>/dev/null || true
+            # Also copy universal APK if available
+            cp build/app/outputs/flutter-apk/app-release.apk android-builds/universal.apk 2>/dev/null || true
+            
+            # Check if we actually copied any files
+            if [ "$(ls -A android-builds/)" ]; then
+              echo "Successfully copied APK files to android-builds/"
+            else
+              echo "No APK files found, creating placeholder"
+              echo "Android build failed to produce APKs" > android-builds/build-failed.txt
+            fi
           else
-            echo "Android APK not found, creating placeholder"
-            mkdir -p build/app/outputs/flutter-apk
-            echo "Android build failed to produce APK" > build/app/outputs/flutter-apk/app-release.apk
+            echo "Android APK build directory not found, creating placeholder"
+            echo "Android build failed to produce APKs" > android-builds/build-failed.txt
           fi
+          
+          # Create a zip with all APKs for easier download
+          zip -j android-all-builds.zip android-builds/*
       - uses: actions/upload-artifact@v4
         with:
-          name: android-release.apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: android-release-apks
+          path: android-builds/
+        if: always()
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-all-builds.zip
+          path: android-all-builds.zip
         if: always()
 
   ios:
@@ -104,6 +129,10 @@ jobs:
         with:
           flutter-version: '3.29.2'
       - run: choco install visualstudio2022buildtools -y  # Install required tools
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+        shell: pwsh
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
       - run: flutter build windows --release
@@ -126,36 +155,72 @@ jobs:
             Write-Host "Found EXE: $($file.FullName)"
           }
         shell: pwsh
-      - name: Create Windows artifact
+      - name: Create Self-Contained EXE with Inno Setup
         run: |
-          # Look for the exe file in the expected locations
+          # Look for the exe file
           $exeFile = Get-ChildItem -Path . -Include "flutter_todo_list.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           
           if ($exeFile) {
             Write-Host "Found Windows exe file at: $($exeFile.FullName)"
             $exeDir = Split-Path -Parent $exeFile.FullName
             
-            # Copy all required DLLs and resources from the same directory
-            Write-Host "Creating standalone Windows package with all required files"
-            $tempDir = "windows-package"
-            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            # Create Inno Setup script
+            $setupScript = @"
+            [Setup]
+            AppName=Flutter Todo List
+            AppVersion=1.0
+            DefaultDirName={autopf}\Flutter Todo List
+            DefaultGroupName=Flutter Todo List
+            OutputDir=.
+            OutputBaseFilename=TodoListSetup
+            Compression=lzma
+            SolidCompression=yes
             
-            # Copy all files from the exe directory
-            Copy-Item -Path "$exeDir\*" -Destination $tempDir -Recurse
+            [Files]
+            Source: "$exeDir\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
             
-            # Create the zip file
-            Compress-Archive -Path "$tempDir\*" -DestinationPath windows.zip -Force
-            Write-Host "Successfully created Windows artifact"
+            [Icons]
+            Name: "{group}\Flutter Todo List"; Filename: "{app}\flutter_todo_list.exe"
+            Name: "{commondesktop}\Flutter Todo List"; Filename: "{app}\flutter_todo_list.exe"
+            
+            [Run]
+            Filename: "{app}\flutter_todo_list.exe"; Description: "Launch Flutter Todo List"; Flags: nowait postinstall skipifsilent
+            "@
+            
+            # Write Inno Setup script to file
+            Set-Content -Path "setup.iss" -Value $setupScript
+            
+            # Run Inno Setup compiler
+            Write-Host "Compiling installer with Inno Setup"
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
+            
+            if (Test-Path "TodoListSetup.exe") {
+              Write-Host "Successfully created self-contained Windows installer"
+              # Create a separate zip with just the standalone EXE for portability
+              Copy-Item "TodoListSetup.exe" -Destination "flutter_todo_list_installer.exe"
+            } else {
+              Write-Host "Failed to create installer, packaging directory instead"
+              # Fall back to packaging directory if installer creation fails
+              $tempDir = "windows-package"
+              New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+              Copy-Item -Path "$exeDir\*" -Destination $tempDir -Recurse
+              Compress-Archive -Path "$tempDir\*" -DestinationPath windows.zip -Force
+            }
           } else {
             Write-Host "Windows executable not found, creating empty artifact"
-            Set-Content -Path windows.zip -Value "Windows build did not produce expected .exe file"
+            Set-Content -Path "windows.zip" -Value "Windows build did not produce expected .exe file"
           }
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
+          name: windows-installer.exe
+          path: flutter_todo_list_installer.exe
+        if: success() && hashFiles('flutter_todo_list_installer.exe') != ''
+      - uses: actions/upload-artifact@v4
+        with:
           name: windows-release.zip
           path: windows.zip
-        if: always()
+        if: always() && hashFiles('windows.zip') != ''
 
   macos:
     runs-on: macos-latest
@@ -222,9 +287,19 @@ jobs:
     needs: [android, ios, web, windows, macos, linux]
     if: github.event_name == 'release'
     steps:
-      - uses: actions/download-artifact@v4
+      - name: List workspace contents
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Listing workspace contents:"
+          ls -la
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: List downloaded artifacts
+        run: |
+          echo "Listing downloaded artifacts:"
+          find artifacts -type f | sort
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         env:
@@ -232,5 +307,20 @@ jobs:
         with:
           files: |
             artifacts/**/*.apk
-            artifacts/**/*.ipa
+            artifacts/**/*.exe
             artifacts/**/*.zip
+          fail_on_unmatched_files: false
+          draft: false
+          generate_release_notes: true
+
+  # Add a debug job to test if the release trigger is working
+  debug-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug event info
+        run: |
+          echo "GitHub event name: ${{ github.event_name }}"
+          echo "GitHub ref: ${{ github.ref }}"
+          echo "GitHub workflow: ${{ github.workflow }}"
+          echo "Is this a release event? ${{ github.event_name == 'release' }}"
+          echo "Release type: ${{ github.event.action }}"
