@@ -139,82 +139,9 @@ jobs:
           path: web-build.zip
           if-no-files-found: warn
 
-  desktop:
+  windows:
     needs: setup
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [windows, macos, linux]
-        include:
-          - platform: windows
-            os: windows-latest
-            artifact_name: windows-build
-            setup_cmd: choco install visualstudio2022buildtools innosetup -y
-            build_cmd: flutter build windows --release
-            package_cmd: |
-              $exeFile = Get-ChildItem -Path . -Include "*.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-              if ($exeFile) {
-                $exeDir = Split-Path -Parent $exeFile.FullName
-                # Create Inno Setup script
-                $setupScript = @"
-              [Setup]
-              AppName=Flutter App
-              AppVersion=1.0
-              DefaultDirName={autopf}\Flutter App
-              DefaultGroupName=Flutter App
-              OutputDir=.
-              OutputBaseFilename=flutter_app_setup
-              Compression=lzma
-              SolidCompression=yes
-
-              [Files]
-              Source: "$($exeDir)\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-              [Icons]
-              Name: "{group}\Flutter App"; Filename: "{app}\$($exeFile.Name)"
-              Name: "{commondesktop}\Flutter App"; Filename: "{app}\$($exeFile.Name)"
-              "@
-                Set-Content -Path "setup.iss" -Value $setupScript
-                & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
-                if (Test-Path "flutter_app_setup.exe") {
-                  Move-Item "flutter_app_setup.exe" -Destination "windows-installer.exe"
-                }
-                # Also package as ZIP
-                Compress-Archive -Path "$exeDir\*" -DestinationPath windows-build.zip -Force
-              } else {
-                Set-Content -Path "windows-build.zip" -Value "Build failed"
-              }
-            shell: pwsh
-          - platform: macos
-            os: macos-latest
-            artifact_name: macos-build
-            setup_cmd: ""
-            build_cmd: flutter build macos --release
-            package_cmd: |
-              APPFILES=$(find build/macos/Build/Products/Release -name "*.app" -type d)
-              if [ -n "$APPFILES" ]; then
-                # Create DMG if possible
-                zip -r macos-build.zip $APPFILES
-              else
-                echo "Build failed" > macos-build.zip
-              fi
-            shell: bash
-          - platform: linux
-            os: ubuntu-latest
-            artifact_name: linux-build
-            setup_cmd: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libx11-dev pkg-config cmake ninja-build libblkid-dev
-            build_cmd: flutter build linux --release
-            package_cmd: |
-              if [ -d "build/linux/x64/release/bundle" ]; then
-                # Add version info
-                echo "Build: ${{ needs.setup.outputs.release_tag }}" > build/linux/x64/release/bundle/BUILD_INFO.txt
-                zip -r linux-build.zip build/linux/x64/release/bundle
-              else
-                echo "Build failed" > linux-build.zip
-              fi
-            shell: bash
-            
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -222,27 +149,64 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
           
-      - name: Setup platform dependencies
-        run: ${{ matrix.setup_cmd }}
-        shell: ${{ matrix.shell }}
+      - name: Setup Windows dependencies
+        run: choco install visualstudio2022buildtools innosetup -y
         
-      - name: Enable desktop
-        run: flutter config --enable-${{ matrix.platform }}-desktop
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
         
-      - name: Build
+      - name: Build Windows
         run: |
           flutter pub get
-          ${{ matrix.build_cmd }}
-        shell: ${{ matrix.shell }}
+          flutter build windows --release
         
-      - name: Package artifacts
-        run: ${{ matrix.package_cmd }}
-        shell: ${{ matrix.shell }}
-        
+      - name: Package Windows artifacts
+        shell: powershell
+        run: |
+          $exeFile = Get-ChildItem -Path . -Include "*.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($exeFile) {
+            $exeDir = Split-Path -Parent $exeFile.FullName
+            
+            # Create Inno Setup script
+            $setupScript = @'
+          [Setup]
+          AppName=Flutter App
+          AppVersion=1.0
+          DefaultDirName={autopf}\Flutter App
+          DefaultGroupName=Flutter App
+          OutputDir=.
+          OutputBaseFilename=flutter_app_setup
+          Compression=lzma
+          SolidCompression=yes
+
+          [Files]
+          Source: "{src}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\Flutter App"; Filename: "{app}\{#ExeName}"
+          Name: "{commondesktop}\Flutter App"; Filename: "{app}\{#ExeName}"
+          '@
+            
+            $setupScript = $setupScript.Replace("{src}", $exeDir)
+            $setupScript = $setupScript.Replace("{#ExeName}", $exeFile.Name)
+            
+            Set-Content -Path "setup.iss" -Value $setupScript
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
+            
+            if (Test-Path "flutter_app_setup.exe") {
+              Move-Item "flutter_app_setup.exe" -Destination "windows-installer.exe"
+            }
+            
+            # Also package as ZIP
+            Compress-Archive -Path "$exeDir\*" -DestinationPath windows-build.zip -Force
+          } else {
+            Set-Content -Path "windows-build.zip" -Value "Build failed"
+          }
+          
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.platform }}-build.zip
+          name: windows-build
+          path: windows-build.zip
           if-no-files-found: warn
           
       - uses: actions/upload-artifact@v4
@@ -250,10 +214,77 @@ jobs:
           name: windows-installer
           path: windows-installer.exe
           if-no-files-found: ignore
-        if: matrix.platform == 'windows' && hashFiles('windows-installer.exe') != ''
+
+  macos:
+    needs: setup
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+          
+      - name: Build macOS
+        run: |
+          flutter pub get
+          flutter build macos --release
+          
+      - name: Package macOS artifacts
+        run: |
+          APPFILES=$(find build/macos/Build/Products/Release -name "*.app" -type d)
+          if [ -n "$APPFILES" ]; then
+            # Create zip with app files
+            zip -r macos-build.zip $APPFILES
+          else
+            echo "Build failed" > macos-build.zip
+          fi
+          
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: macos-build.zip
+          if-no-files-found: warn
+
+  linux:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+          
+      - name: Setup Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libx11-dev pkg-config cmake ninja-build libblkid-dev
+        
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+        
+      - name: Build Linux
+        run: |
+          flutter pub get
+          flutter build linux --release
+          
+      - name: Package Linux artifacts
+        run: |
+          if [ -d "build/linux/x64/release/bundle" ]; then
+            # Add version info
+            echo "Build: ${{ needs.setup.outputs.release_tag }}" > build/linux/x64/release/bundle/BUILD_INFO.txt
+            zip -r linux-build.zip build/linux/x64/release/bundle
+          else
+            echo "Build failed" > linux-build.zip
+          fi
+          
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: linux-build.zip
+          if-no-files-found: warn
 
   release:
-    needs: [setup, android, ios, web, desktop]
+    needs: [setup, android, ios, web, windows, macos, linux]
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_mode == 'true')
     runs-on: ubuntu-latest
     permissions:
@@ -269,9 +300,9 @@ jobs:
           mkdir -p release-assets
           # Copy all relevant files
           find all-artifacts -type f -not -path "*/\.*" -exec cp {} release-assets/ \;
-          # Remove duplicate files & organize
-          cd release-assets
-          ls -la
+          # List files for debugging
+          echo "Files prepared for release:"
+          ls -la release-assets/
           
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
