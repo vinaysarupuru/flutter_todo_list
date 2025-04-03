@@ -149,7 +149,7 @@ jobs:
           flutter pub get
           
           Write-Host "Building Windows app in Release mode..."
-          flutter build windows --release --verbose --target-platform windows-x64
+          flutter build windows --release --verbose
           
           # Wait for build to complete and verify output
           Write-Host "Waiting for build output to be ready..."
