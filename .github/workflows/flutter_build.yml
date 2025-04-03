@@ -111,26 +111,44 @@ jobs:
         run: |
           Write-Host "Listing build directory contents:"
           if (Test-Path "build") {
-            Get-ChildItem -Path "build" -Recurse | Select-Object FullName
-            if (Test-Path "build\windows") {
-              Write-Host "Windows build directory contents:"
-              Get-ChildItem -Path "build\windows" -Recurse | Select-Object FullName
-            } else {
-              Write-Host "Windows build directory not found"
+            Get-ChildItem -Path "build" -Force -Directory | ForEach-Object { 
+              Write-Host "Directory: $_"
+              Get-ChildItem -Path "$_" -Recurse -Force
             }
           } else {
             Write-Host "Build directory not found"
           }
+          
+          # Search for the exe file regardless of path
+          Write-Host "Searching for .exe files:"
+          $exeFiles = Get-ChildItem -Path . -Include "*.exe" -File -Recurse -ErrorAction SilentlyContinue
+          foreach ($file in $exeFiles) {
+            Write-Host "Found EXE: $($file.FullName)"
+          }
         shell: pwsh
       - name: Create Windows artifact
         run: |
-          $releaseDir = "build\windows\runner\Release"
-          if (Test-Path $releaseDir) {
-            Write-Host "Found Windows release directory, creating zip artifact"
-            Compress-Archive -Path "$releaseDir\*" -DestinationPath windows.zip -Force
+          # Look for the exe file in the expected locations
+          $exeFile = Get-ChildItem -Path . -Include "flutter_todo_list.exe" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          
+          if ($exeFile) {
+            Write-Host "Found Windows exe file at: $($exeFile.FullName)"
+            $exeDir = Split-Path -Parent $exeFile.FullName
+            
+            # Copy all required DLLs and resources from the same directory
+            Write-Host "Creating standalone Windows package with all required files"
+            $tempDir = "windows-package"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            
+            # Copy all files from the exe directory
+            Copy-Item -Path "$exeDir\*" -Destination $tempDir -Recurse
+            
+            # Create the zip file
+            Compress-Archive -Path "$tempDir\*" -DestinationPath windows.zip -Force
+            Write-Host "Successfully created Windows artifact"
           } else {
-            Write-Host "Windows release directory not found, creating empty artifact"
-            Set-Content -Path windows.zip -Value "Windows build did not produce expected output"
+            Write-Host "Windows executable not found, creating empty artifact"
+            Set-Content -Path windows.zip -Value "Windows build did not produce expected .exe file"
           }
         shell: pwsh
       - uses: actions/upload-artifact@v4
