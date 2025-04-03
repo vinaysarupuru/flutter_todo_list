@@ -1,269 +1,117 @@
-name: Flutter Multi-Platform Build
+name: Flutter Multiplatform Build
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-
-permissions:
-  contents: write
-  actions: read
-  checks: write
-  issues: write
-  pull-requests: write
+    branches:
+      - main
+  release:
+    types: [created]
 
 jobs:
-  build-android:
-    name: Build Android
+  android:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Java
-        uses: actions/setup-java@v3
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          distribution: 'zulu'
-          java-version: '11'
-      
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+          flutter-version: '3.29.2' # Specify your Flutter version
+      - run: flutter pub get
+      - run: flutter build appbundle --release
+      - uses: actions/upload-artifact@v4
         with:
-          channel: 'stable'
-      
-      - name: Get dependencies
-        run: flutter pub get
-      
-      - name: Build APK
-        run: flutter build apk --split-per-abi
-      
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v3.1.3
-        with:
-          name: android-apk
-          path: build/app/outputs/flutter-apk/app-*.apk
-          retention-days: 7
-          if-no-files-found: error
-      
-      - name: Create download link
-        run: |
-          echo "Android APK can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
-          echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/android-apk.zip"
+          name: android-release.aab
+          path: build/app/outputs/bundle/release/app-release.aab
+    # [[1]][[3]][[7]]
 
-  build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
-      
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-      
-      - name: Configure Flutter
-        run: flutter config --enable-linux-desktop
-      
-      - name: Get dependencies
-        run: flutter pub get
-      
-      - name: Build Linux
-        run: flutter build linux
-      
-      - name: Upload Linux build
-        uses: actions/upload-artifact@v3.1.3
-        with:
-          name: linux-release
-          path: build/linux/x64/release/bundle
-          retention-days: 7
-          if-no-files-found: error
-      
-      - name: Create download link
-        run: |
-          echo "Linux app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
-          echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/linux-release.zip"
-
-  build-web:
-    name: Build Web
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-      
-      - name: Get dependencies
-        run: flutter pub get
-      
-      - name: Build Web
-        run: flutter build web
-      
-      - name: Upload Web build
-        uses: actions/upload-artifact@v3.1.3
-        with:
-          name: web-release
-          path: build/web
-          retention-days: 7
-          if-no-files-found: error
-      
-      - name: Create download link
-        run: |
-          echo "Web app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
-          echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/web-release.zip"
-
-  build-ios:
-    name: Build iOS
+  ios:
     runs-on: macos-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+      - run: flutter pub get
+      - run: flutter build ipa --release --no-tree-shake-icons
+      - uses: actions/upload-artifact@v4
         with:
-          channel: 'stable'
-      
-      - name: Get dependencies
-        run: flutter pub get
-      
-      - name: Build iOS
-        run: flutter build ios --no-codesign
-      
-      - name: Upload iOS build
-        uses: actions/upload-artifact@v3.1.3
-        with:
-          name: ios-release
-          path: build/ios/iphoneos
-          retention-days: 7
-          if-no-files-found: error
-      
-      - name: Create download link
-        run: |
-          echo "iOS app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
-          echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/ios-release.zip"
-          echo "Note: iOS apps require code signing for installation on physical devices."
+          name: ios-release.ipa
+          path: build/ios/ipa/*.ipa
+    # [[4]][[6]] (Note: Requires Apple Developer certificate setup in secrets)
 
-  build-macos:
-    name: Build macOS
-    runs-on: macos-latest
+  web:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+      - run: flutter pub get
+      - run: flutter build web --release
+      - run: zip -r web.zip build/web
+      - uses: actions/upload-artifact@v4
         with:
-          channel: 'stable'
-      
-      - name: Configure Flutter
-        run: flutter config --enable-macos-desktop
-      
-      - name: Get dependencies
-        run: flutter pub get
-      
-      - name: Build macOS
-        run: flutter build macos
-      
-      - name: Upload macOS build
-        uses: actions/upload-artifact@v3.1.3
-        with:
-          name: macos-release
-          path: build/macos/Build/Products/Release
-          retention-days: 7
-          if-no-files-found: error
-      
-      - name: Create download link
-        run: |
-          echo "macOS app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
-          echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/macos-release.zip"
+          name: web-release.zip
+          path: web.zip
+    # [[4]][[7]]
 
-  build-windows:
-    name: Build Windows
+  windows:
     runs-on: windows-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - run: Compress-Archive -Path build\windows\runner\Release -DestinationPath windows.zip
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
         with:
-          channel: 'stable'
-      
-      - name: Configure Flutter
-        run: flutter config --enable-windows-desktop
-      
-      - name: Get dependencies
-        run: flutter pub get
-      
-      - name: Build Windows
-        run: flutter build windows
-      
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v3.1.3
-        with:
-          name: windows-release
-          path: build/windows/runner/Release
-          retention-days: 7
-          if-no-files-found: error
-      
-      - name: Create download link
-        run: |
-          echo "Windows app can be downloaded from the Actions tab, under this workflow run, in the Artifacts section."
-          echo "Direct link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "Download URL: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/windows-release.zip"
+          name: windows-release.zip
+          path: windows.zip
+    # [[4]][[6]]
 
-  create-release:
-    name: Create GitHub Release
-    needs: [build-android, build-ios, build-web, build-linux, build-macos, build-windows]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+  macos:
+    runs-on: macos-latest
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v3.1.3
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - run: zip -r macos.zip build/macos/Build/Products/Release/*.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-release.zip
+          path: macos.zip
+    # [[4]][[6]]
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - run: zip -r linux.zip build/linux/x64/release/bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release.zip
+          path: linux.zip
+    # [[4]][[8]]
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [android, ios, web, windows, macos, linux]
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Package artifacts
-        run: |
-          cd artifacts
-          for d in */; do
-            zip -r "${d%/}.zip" "$d"
-          done
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1.1.4
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-          
-      - name: Display Download Information
-        run: |
-          echo "All build artifacts for this workflow run can be downloaded from:"
-          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo ""
-          echo "Android APK: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/android-apk.zip"
-          echo "iOS build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/ios-release.zip"
-          echo "Web build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/web-release.zip"
-          echo "Linux build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/linux-release.zip"
-          echo "macOS build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/macos-release.zip"
-          echo "Windows build: https://nightly.link/${{ github.repository }}/actions/runs/${{ github.run_id }}/windows-release.zip"
+          files: |
+            artifacts/android-release.aab
+            artifacts/ios-release.ipa
+            artifacts/web-release.zip
+            artifacts/windows-release.zip
+            artifacts/macos-release.zip
+            artifacts/linux-release.zip
+    # [[9]][[10]]
